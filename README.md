@@ -95,3 +95,80 @@ Vagrant.configure("2") do |config|
   config.vm.box_url = "file://C:/vagrant_projects/my_vm/log/ubuntu-jammy64.box"
   config.vm.boot_timeout = 600
 end
+# С помощью ansible учтанавливаем borgbackup, на сервере backup создаем пользователя borg
+# Содержание inventory.ini
+vagrant@ansible01:~/projects/backup$ cat inventory.ini
+[backup_server]
+192.168.56.16 ansible_user=vagrant
+
+[client]
+192.168.56.17 ansible_user=vagrant
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+# Содержание playbook.yml
+- name: Установка BorgBackup
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Скачивание borgbackup
+      get_url:
+        url: https://github.com/borgbackup/borg/releases/download/1.2.8/borg-linux64
+        dest: /usr/local/bin/borg
+        mode: '0755'
+
+- name: Настройка сервера
+  hosts: 192.168.56.16
+  become: yes
+
+  tasks:
+    - name: Создание пользователя borg
+      user:
+        name: borg
+        state: present
+
+    - name: Создание /var/backup
+      file:
+        path: /var/backup
+        state: directory
+        owner: borg
+        group: borg
+        mode: '0755'
+
+    - name: Создание .ssh
+      file:
+        path: /home/borg/.ssh
+        state: directory
+        owner: borg
+        group: borg
+        mode: '0700'
+
+    - name: Создание authorized_keys
+      file:
+        path: /home/borg/.ssh/authorized_keys
+        state: touch
+        owner: borg
+        group: borg
+        mode: '0600'
+
+- name: Настройка клиента
+  hosts: 192.168.56.17
+  become: no
+
+  tasks:
+    - name: Генерация SSH ключа
+      command: ssh-keygen -t rsa -b 4096 -f /home/vagrant/.ssh/id_rsa_borg -N ""
+      args:
+        creates: /home/vagrant/.ssh/id_rsa_borg
+
+    - name: Копирование ключа через ssh-copy-id (с ручным вводом пароля)
+      command: ssh-copy-id -i /home/vagrant/.ssh/id_rsa_borg.pub borg@192.168.56.16
+      ignore_errors: yes
+      register: copy_result
+
+    - name: Если ssh-copy-id не сработал - копируем через vagrant пользователя
+      shell: |
+        cat /home/vagrant/.ssh/id_rsa_borg.pub | ssh vagrant@192.168.56.16 "sudo tee -a /home/borg/.ssh/authorized_keys && sudo chown borg:borg /home/borg/.ssh/authorized_keys && sudo chmod 600 /home/borg/.ssh/authorized_keys"
+      when: copy_result is failed
+
