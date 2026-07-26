@@ -490,6 +490,31 @@ Jul 26 11:32:46 backupclient borg-backup: Chunk index:                     671  
 Jul 26 11:32:46 backupclient borg-backup: ------------------------------------------------------------------------------
 Jul 26 11:32:55 backupclient systemd[1]: borg-backup.service: Deactivated successfully.
 Jul 26 11:32:55 backupclient systemd[1]: borg-backup.service: Consumed 5.973s CPU time.
+# Проверим восстановление
+# Останавливаем сервис бэкапа
+vagrant@backupclient:~$ sudo systemctl stop borg-backup.timer
+vagrant@backupclient:~$ sudo systemctl status borg-backup.timer
+○ borg-backup.timer - Borg Backup Timer
+     Loaded: loaded (/etc/systemd/system/borg-backup.timer; enabled; v>
+     Active: inactive (dead) since Sun 2026-07-26 11:53:51 UTC; 7s ago
+    Trigger: n/a
+   Triggers: ● borg-backup.service
+
+Jul 26 10:32:45 backupclient systemd[1]: Started Borg Backup Timer.
+Jul 26 10:33:03 backupclient systemd[1]: /etc/systemd/system/borg-back>
+Jul 26 11:53:51 backupclient systemd[1]: borg-backup.timer: Deactivate>
+Jul 26 11:53:51 backupclient systemd[1]: Stopped Borg Backup Timer.
+# Создаем резервную копию текущего /etc (на всякий случай)
+vagrant@backupclient:~$ sudo cp -r /etc /etc.backup.$(date +%Y%m%d_%H%M%S)
+# Переместим директорию /etc
+vagrant@backupclient:~$ sudo mv /etc /etc.oldекторию /etc
+# Восстановим /etc из бэкапа
+# Создадим директорию /etc
+vagrant@backupclient:~$ sudo mkdir /etc
+sudo: you do not exist in the passwd database
+# Возникла ошибка, попробуем загрузиться в recovery mode
+# Перезагрузим систему
+
 
 
 
