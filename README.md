@@ -263,7 +263,65 @@ All archives:                2.08 MB            913.54 kB            950.49 kB
                        Unique chunks         Total chunks
 Chunk index:                     643                  671
 -----------------------------------------------------------------------
+# Смотрим, что у нас получилось
+vagrant@backupclient:~$ borg list borg@192.168.56.16:/var/backup/
+Enter passphrase for key ssh://borg@192.168.56.16/var/backup:
+etc-2026-07-26_09:46:04              Sun, 2026-07-26 09:46:17 [30145100a2614a19fe41e3c73cc901f0892b993ded13c1a4618e09f662736076]
+# Смотрим список файлов
+vagrant@backupclient:~$ borg list borg@192.168.56.16:/var/backup/::etc-2026-07-26_09:46:04
+# Достаем файл из бекапа
+borg extract borg@192.168.56.16:/var/backup/::etc-2026-07-26_09:46:04 etc/hostname
+# Автоматизируем создание бэкапов с помощью systemd
+# Создаем сервис и таймер в каталоге /etc/systemd/system/
+vagrant@backupclient:~$ sudo nano /etc/systemd/system/borg-backup.service
 
+[Unit]
+Description=Borg Backup
+
+[Service]
+Type=oneshot
+
+# Парольная фраза
+Environment="BORG_PASSPHRASE=cat"
+Environment="BORG_RSH=ssh -i /home/vagrant/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/home/vagrant/.ssh/known_hosts"
+# Репозиторий
+Environment=REPO=borg@192.168.56.16:/var/backup/
+# Что бэкапим
+Environment=BACKUP_TARGET=/etc
+
+# Создание бэкапа
+ExecStart=/usr/local/bin/borg create \
+    --stats                \
+    ${REPO}::etc-{now:%%Y-%%m-%%d_%%H:%%M:%%S} ${BACKUP_TARGET}
+
+# Проверка бэкапа
+ExecStart=/usr/local/bin/borg check ${REPO}
+
+# Очистка старых бэкапов
+ExecStart=/usr/local/bin/borg prune \
+    --keep-daily  90      \
+    --keep-monthly 12     \
+    --keep-yearly  1       \
+    ${REPO}
+
+
+# /etc/systemd/system/borg-backup.timer
+[Unit]
+Description=Borg Backup
+
+[Timer]
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+
+
+# Добавляем
+ssh-keyscan -H 192.168.56.16 >> ~/.ssh/known_hosts
+# Включаем и запускаем службу таймера
+vagrant@backupclient:~$ sudo systemctl enable borg-backup.service
+Created symlink /etc/systemd/system/timers.target.wants/borg-backup.service → /etc/systemd/system/borg-backup.service.
+systemctl start borg-backup.timer
 
 
 
