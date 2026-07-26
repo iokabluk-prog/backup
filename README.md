@@ -342,6 +342,27 @@ Jul 26 10:19:32 backupclient systemd[1]: borg-backup.service: Deactiva>
 Jul 26 10:19:32 backupclient systemd[1]: Finished Borg Backup.
 Jul 26 10:19:32 backupclient systemd[1]: borg-backup.service: Consumed>
 
+# Проверяем работу таймера
+vagrant@backupclient:~$ systemctl list-timers --all
+NEXT                        LEFT          LAST                        >
+Sun 2026-07-26 19:27:31 UTC 9h left       Fri 2026-07-17 04:44:37 UTC >
+Sun 2026-07-26 22:30:16 UTC 12h left      Sun 2026-07-26 09:54:42 UTC >
+Mon 2026-07-27 00:00:00 UTC 13h left      n/a                         >
+Mon 2026-07-27 00:00:00 UTC 13h left      Sun 2026-07-26 09:04:07 UTC >
+Mon 2026-07-27 00:37:29 UTC 14h left      Sun 2026-07-26 09:04:37 UTC >
+Mon 2026-07-27 06:15:31 UTC 19h left      Sun 2026-07-26 10:02:01 UTC >
+Mon 2026-07-27 09:04:07 UTC 22h left      Sun 2026-07-26 09:04:07 UTC >
+Mon 2026-07-27 09:09:01 UTC 22h left      Sun 2026-07-26 09:09:01 UTC >
+Mon 2026-07-27 11:30:37 UTC 1 day 1h left Sun 2026-07-26 09:49:42 UTC >
+Sat 2026-08-01 21:43:15 UTC 6 days left   Fri 2026-07-17 04:44:37 UTC >
+Sun 2026-08-02 03:10:51 UTC 6 days left   Sun 2026-07-26 09:04:20 UTC >
+n/a                         n/a           n/a                         >
+n/a                         n/a           n/a                         >
+n/a                         n/a           n/a                         >
+
+14 timers listed.
+
+
 
 
     
