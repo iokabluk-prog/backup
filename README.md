@@ -322,7 +322,25 @@ ssh-keyscan -H 192.168.56.16 >> ~/.ssh/known_hosts
 vagrant@backupclient:~$ sudo systemctl enable borg-backup.service
 Created symlink /etc/systemd/system/timers.target.wants/borg-backup.service → /etc/systemd/system/borg-backup.service.
 systemctl start borg-backup.timer
+vagrant@backupclient:~$ sudo systemctl status borg-backup.service      ○ borg-backup.service - Borg Backup
+     Loaded: loaded (/etc/systemd/system/borg-backup.service; enabled;>
+     Active: inactive (dead) since Sun 2026-07-26 10:19:32 UTC; 2min 5>
+    Process: 1419 ExecStart=/usr/local/bin/borg create --stats ${REPO}>
+    Process: 1423 ExecStart=/usr/local/bin/borg check ${REPO} (code=ex>
+    Process: 1428 ExecStart=/usr/local/bin/borg prune --keep-daily 90 >
+   Main PID: 1428 (code=exited, status=0/SUCCESS)
+        CPU: 6.452s
 
+Jul 26 10:19:23 backupclient borg[1420]: ----------------------------->
+Jul 26 10:19:23 backupclient borg[1420]:                        Origin>
+Jul 26 10:19:23 backupclient borg[1420]: This archive:                >
+Jul 26 10:19:23 backupclient borg[1420]: All archives:                >
+Jul 26 10:19:23 backupclient borg[1420]:                        Unique>
+Jul 26 10:19:23 backupclient borg[1420]: Chunk index:                 >
+Jul 26 10:19:23 backupclient borg[1420]: ----------------------------->
+Jul 26 10:19:32 backupclient systemd[1]: borg-backup.service: Deactiva>
+Jul 26 10:19:32 backupclient systemd[1]: Finished Borg Backup.
+Jul 26 10:19:32 backupclient systemd[1]: borg-backup.service: Consumed>
 
 
 
