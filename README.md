@@ -512,8 +512,51 @@ vagrant@backupclient:~$ sudo mv /etc /etc.oldекторию /etc
 # Создадим директорию /etc
 vagrant@backupclient:~$ sudo mkdir /etc
 sudo: you do not exist in the passwd database
-# Возникла ошибка, попробуем загрузиться в recovery mode
-# Перезагрузим систему
+# Возникла ошибка, попробуем загрузиться в recovery mode c live cd
+# Смонтируем корневой раздел
+sudo mount /dev/sda1 /mnt
+# Смонтируем необходимые файловые системы
+sudo mount --bind /dev /mnt/dev
+sudo mount --bind /proc /mnt/proc
+sudo mount --bind /sys /mnt/sys
+
+# Перейдем в смонтированную систему
+sudo chroot /mnt
+# Настройка сети
+sudo ip addr flush dev enp0s8
+sudo ip addr add 192.168.1.100/24 dev enp0s8
+sudo ip link set enp0s8 up
+# Создаем минимальный /etc/passwd
+echo 'root:x:0:0:root:/root:/bin/bash' | sudo tee /etc/passwd
+echo 'vagrant:x:1000:1000:vagrant:/home/vagrant:/bin/bash' | sudo tee -a /etc/passwd
+
+# Создаем минимальный /etc/group
+echo 'root:x:0:' | sudo tee /etc/group
+echo 'vagrant:x:1000:' | sudo tee -a /etc/group
+# Скопируем  ключи из системы
+sudo mkdir -p /tmp/ssh-keys
+sudo cp /mnt/home/vagrant/.ssh/id_rsa /tmp/ssh-keys/ 2>/dev/null
+sudo cp /mnt/home/vagrant/.ssh/id_rsa.pub /tmp/ssh-keys/ 2>/dev/null
+sudo cp /mnt/home/vagrant/.ssh/known_hosts /tmp/ssh-keys/ 2>/dev/null
+
+# Проверка
+ls -la /tmp/ssh-keys/
+# Попробуем восстановить каталог /etc из бэкапа
+export BORG_PASSPHRASE=cat
+export BORG_RSH="ssh -i /home/vagrant/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/home/vagrant/.ssh/known_hosts"
+borg extract borg@192.168.56.16:/var/backup/::etc-2026-07-26_11:48:03 /etc
+# Получим ошибку, среда в Live CD не настроена на использование кодировки UTF-8. Borg полагается на настройки локали для корректной работы с именами файлов
+# Используем встроенную локаль C.UTF-8
+export LANG=C.UTF-8
+export LC_CTYPE=C.UTF-8
+export LC_ALL=C.UTF-8
+# Перезагрузим  borg extract borg@192.168.56.16:/var/backup/::etc-2026-07-26_11:48:03 /etc
+# Восстановление прошло без ошибок
+# Выполним
+exit
+sudo umount -R /mnt
+reboot
+# После перезагрузки ВМ загрузилась
 
 
 
