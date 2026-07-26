@@ -316,9 +316,18 @@ OnUnitActiveSec=5min
 WantedBy=timers.target
 
 
-# Добавляем
-ssh-keyscan -H 192.168.56.16 >> ~/.ssh/known_hosts
-# Включаем и запускаем службу таймера
+# Создаем файл таймера
+vagrant@backupclient:~$ sudo nano /etc/systemd/system/borg-backup.timer
+vagrant@backupclient:~$ sudo cat /etc/systemd/system/borg-backup.timer [Unit]
+Description=Borg Backup Timer
+Requires=borg-backup.service
+
+[Timer]
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+# Включаем и запускаем службу borg-backup.service
 vagrant@backupclient:~$ sudo systemctl enable borg-backup.service
 Created symlink /etc/systemd/system/timers.target.wants/borg-backup.service → /etc/systemd/system/borg-backup.service.
 systemctl start borg-backup.timer
@@ -342,25 +351,147 @@ Jul 26 10:19:32 backupclient systemd[1]: borg-backup.service: Deactiva>
 Jul 26 10:19:32 backupclient systemd[1]: Finished Borg Backup.
 Jul 26 10:19:32 backupclient systemd[1]: borg-backup.service: Consumed>
 
-# Проверяем работу таймера
+# Включаем и запускаем службу таймера
+vagrant@backupclient:~$ sudo systemctl daemon-reload
+vagrant@backupclient:~$ sudo systemctl enable borg-backup.timer
 vagrant@backupclient:~$ systemctl list-timers --all
-NEXT                        LEFT          LAST                        >
-Sun 2026-07-26 19:27:31 UTC 9h left       Fri 2026-07-17 04:44:37 UTC >
-Sun 2026-07-26 22:30:16 UTC 12h left      Sun 2026-07-26 09:54:42 UTC >
-Mon 2026-07-27 00:00:00 UTC 13h left      n/a                         >
-Mon 2026-07-27 00:00:00 UTC 13h left      Sun 2026-07-26 09:04:07 UTC >
-Mon 2026-07-27 00:37:29 UTC 14h left      Sun 2026-07-26 09:04:37 UTC >
-Mon 2026-07-27 06:15:31 UTC 19h left      Sun 2026-07-26 10:02:01 UTC >
-Mon 2026-07-27 09:04:07 UTC 22h left      Sun 2026-07-26 09:04:07 UTC >
-Mon 2026-07-27 09:09:01 UTC 22h left      Sun 2026-07-26 09:09:01 UTC >
-Mon 2026-07-27 11:30:37 UTC 1 day 1h left Sun 2026-07-26 09:49:42 UTC >
-Sat 2026-08-01 21:43:15 UTC 6 days left   Fri 2026-07-17 04:44:37 UTC >
-Sun 2026-08-02 03:10:51 UTC 6 days left   Sun 2026-07-26 09:04:20 UTC >
-n/a                         n/a           n/a                         >
-n/a                         n/a           n/a                         >
-n/a                         n/a           n/a                         >
+NEXT                        LEFT          LAST                        PASSED            UNIT                           ACTIVATES
+Sun 2026-07-26 10:40:57 UTC 4min 18s left n/a                         n/a               borg-backup.timer              borg-backup.service
+# Проверяем, что бэкапы создаются
+vagrant@backupclient:~$ borg list borg@192.168.56.16:/var/backup/
+Enter passphrase for key ssh://borg@192.168.56.16/var/backup:
+etc-2026-07-26_09:46:04              Sun, 2026-07-26 09:46:17 [30145100a2614a19fe41e3c73cc901f0892b993ded13c1a4618e09f662736076]
+etc-2026-07-26_10:51:39              Sun, 2026-07-26 10:51:42 [dcd274a354e3f722bbe2de049ac3c43e0094941995b39f09c16b1a243c708e54]
+# Проверка логов бэкапа 
+vagrant@backupclient:~$ sudo journalctl -u borg-backup.service -f
+Jul 26 10:51:43 backupclient borg[1765]: ------------------------------------------------------------------------------
+Jul 26 10:51:43 backupclient borg[1765]:                        Original size      Compressed size    Deduplicated size
+Jul 26 10:51:43 backupclient borg[1765]: This archive:                2.11 MB            929.66 kB                619 B
+Jul 26 10:51:43 backupclient borg[1765]: All archives:                6.29 MB              2.77 MB              1.04 MB
+Jul 26 10:51:43 backupclient borg[1765]:                        Unique chunks         Total chunks
+Jul 26 10:51:43 backupclient borg[1765]: Chunk index:                     671                 2061
+Jul 26 10:51:43 backupclient borg[1765]: ------------------------------------------------------------------------------
+Jul 26 10:51:52 backupclient systemd[1]: borg-backup.service: Deactivated successfully.
+Jul 26 10:51:52 backupclient systemd[1]: Finished Borg Backup.
+Jul 26 10:51:52 backupclient systemd[1]: borg-backup.service: Consumed 6.072s CPU time.
+# Логирование через syslog/logger
+# Изменим файл службы
+vagrant@backupclient:~$ sudo nano /etc/systemd/system/borg-backup.service
+[Unit]
+Description=Borg Backup
 
-14 timers listed.
+[Service]
+Type=oneshot
+
+# Парольная фраза
+Environment="BORG_PASSPHRASE=cat"
+Environment="BORG_RSH=ssh -i /home/vagrant/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/home/vagrant/.ssh/known_hosts"
+# Репозиторий
+Environment=REPO=borg@192.168.56.16:/var/backup/
+# Что бэкапим
+Environment=BACKUP_TARGET=/etc
+
+# Создание бэкапа
+ExecStart=/bin/bash -c "/usr/local/bin/borg create \
+    --stats                \
+    ${REPO}::etc-{now:%%Y-%%m-%%d_%%H:%%M:%%S} ${BACKUP_TARGET} \
+    2>&1 | logger -t borg-backup -p info"
+
+# Проверка бэкапа
+ExecStart=/bin/bash -c "/usr/local/bin/borg check ${REPO} \
+    2>&1 | logger -t borg-backup -p info"
+
+# Очистка старых бэкапов
+ExecStart=/bin/bash -c "/usr/local/bin/borg prune \
+    --keep-daily  90      \
+    --keep-monthly 12     \
+    --keep-yearly  1       \
+    ${REPO} \
+    2>&1 | logger -t borg-backup -p info"
+
+[Install]
+WantedBy=timers.target
+
+# Просмотр логов 
+vagrant@backupclient:~$ sudo grep borg-backup /var/log/syslog
+Jul 26 11:16:41 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:16:41 backupclient borg-backup: Repository: ssh://borg@192.168.56.16/var/backup
+Jul 26 11:16:41 backupclient borg-backup: Archive name: etc-2026-07-26_11:16:36
+Jul 26 11:16:41 backupclient borg-backup: Archive fingerprint: 32a7bd5ddce553a9a1755f2de1c773a1fda7e52495a1a431845a40ad3f71a709
+Jul 26 11:16:41 backupclient borg-backup: Time (start): Sun, 2026-07-26 11:16:40
+Jul 26 11:16:41 backupclient borg-backup: Time (end):   Sun, 2026-07-26 11:16:40
+Jul 26 11:16:41 backupclient borg-backup: Duration: 0.47 seconds
+Jul 26 11:16:41 backupclient borg-backup: Number of files: 704
+Jul 26 11:16:41 backupclient borg-backup: Utilization of max. archive size: 0%
+Jul 26 11:16:41 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:16:41 backupclient borg-backup:                        Original size      Compressed size    Deduplicated size
+Jul 26 11:16:41 backupclient borg-backup: This archive:                2.11 MB            929.65 kB              1.33 kB
+Jul 26 11:16:41 backupclient borg-backup: All archives:                6.29 MB              2.77 MB              1.11 MB
+Jul 26 11:16:41 backupclient borg-backup:
+Jul 26 11:16:41 backupclient borg-backup:                        Unique chunks         Total chunks
+Jul 26 11:16:41 backupclient borg-backup: Chunk index:                     674                 2061
+Jul 26 11:16:41 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:16:50 backupclient systemd[1]: borg-backup.service: Deactivated successfully.
+Jul 26 11:16:50 backupclient systemd[1]: borg-backup.service: Consumed 6.330s CPU time.
+Jul 26 11:21:43 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:21:43 backupclient borg-backup: Repository: ssh://borg@192.168.56.16/var/backup
+Jul 26 11:21:43 backupclient borg-backup: Archive name: etc-2026-07-26_11:21:39
+Jul 26 11:21:43 backupclient borg-backup: Archive fingerprint: f3fb9b65d8207a66d59f9cef85d1f1f660f256d97591eb489d4eb67d9ccc02bd
+Jul 26 11:21:43 backupclient borg-backup: Time (start): Sun, 2026-07-26 11:21:42
+Jul 26 11:21:43 backupclient borg-backup: Time (end):   Sun, 2026-07-26 11:21:43
+Jul 26 11:21:43 backupclient borg-backup: Duration: 0.25 seconds
+Jul 26 11:21:43 backupclient borg-backup: Number of files: 704
+Jul 26 11:21:43 backupclient borg-backup: Utilization of max. archive size: 0%
+Jul 26 11:21:43 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:21:43 backupclient borg-backup:                        Original size      Compressed size    Deduplicated size
+Jul 26 11:21:43 backupclient borg-backup: This archive:                2.11 MB            929.65 kB                619 B
+Jul 26 11:21:43 backupclient borg-backup: All archives:                6.29 MB              2.77 MB              1.04 MB
+Jul 26 11:21:43 backupclient borg-backup:
+Jul 26 11:21:43 backupclient borg-backup:                        Unique chunks         Total chunks
+Jul 26 11:21:43 backupclient borg-backup: Chunk index:                     671                 2061
+Jul 26 11:21:43 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:21:52 backupclient systemd[1]: borg-backup.service: Deactivated successfully.
+Jul 26 11:21:52 backupclient systemd[1]: borg-backup.service: Consumed 6.023s CPU time.
+Jul 26 11:27:07 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:27:07 backupclient borg-backup: Repository: ssh://borg@192.168.56.16/var/backup
+Jul 26 11:27:07 backupclient borg-backup: Archive name: etc-2026-07-26_11:27:03
+Jul 26 11:27:07 backupclient borg-backup: Archive fingerprint: d23f34110da4345f6a7aabfcee3600d5abcda5c1908c76d1de9106d600cc8638
+Jul 26 11:27:07 backupclient borg-backup: Time (start): Sun, 2026-07-26 11:27:06
+Jul 26 11:27:07 backupclient borg-backup: Time (end):   Sun, 2026-07-26 11:27:07
+Jul 26 11:27:07 backupclient borg-backup: Duration: 0.40 seconds
+Jul 26 11:27:07 backupclient borg-backup: Number of files: 704
+Jul 26 11:27:07 backupclient borg-backup: Utilization of max. archive size: 0%
+Jul 26 11:27:07 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:27:07 backupclient borg-backup:                        Original size      Compressed size    Deduplicated size
+Jul 26 11:27:07 backupclient borg-backup: This archive:                2.11 MB            929.65 kB                618 B
+Jul 26 11:27:07 backupclient borg-backup: All archives:                6.29 MB              2.77 MB              1.04 MB
+Jul 26 11:27:07 backupclient borg-backup:
+Jul 26 11:27:07 backupclient borg-backup:                        Unique chunks         Total chunks
+Jul 26 11:27:07 backupclient borg-backup: Chunk index:                     671                 2061
+Jul 26 11:27:07 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:27:16 backupclient systemd[1]: borg-backup.service: Deactivated successfully.
+Jul 26 11:27:16 backupclient systemd[1]: borg-backup.service: Consumed 6.589s CPU time.
+Jul 26 11:32:46 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:32:46 backupclient borg-backup: Repository: ssh://borg@192.168.56.16/var/backup
+Jul 26 11:32:46 backupclient borg-backup: Archive name: etc-2026-07-26_11:32:43
+Jul 26 11:32:46 backupclient borg-backup: Archive fingerprint: 26d401c8bd08947080b1974ac6144c0900d28391a60fcbd599b8762d15266d87
+Jul 26 11:32:46 backupclient borg-backup: Time (start): Sun, 2026-07-26 11:32:46
+Jul 26 11:32:46 backupclient borg-backup: Time (end):   Sun, 2026-07-26 11:32:46
+Jul 26 11:32:46 backupclient borg-backup: Duration: 0.36 seconds
+Jul 26 11:32:46 backupclient borg-backup: Number of files: 704
+Jul 26 11:32:46 backupclient borg-backup: Utilization of max. archive size: 0%
+Jul 26 11:32:46 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:32:46 backupclient borg-backup:                        Original size      Compressed size    Deduplicated size
+Jul 26 11:32:46 backupclient borg-backup: This archive:                2.11 MB            929.65 kB                616 B
+Jul 26 11:32:46 backupclient borg-backup: All archives:                6.29 MB              2.77 MB              1.04 MB
+Jul 26 11:32:46 backupclient borg-backup:
+Jul 26 11:32:46 backupclient borg-backup:                        Unique chunks         Total chunks
+Jul 26 11:32:46 backupclient borg-backup: Chunk index:                     671                 2061
+Jul 26 11:32:46 backupclient borg-backup: ------------------------------------------------------------------------------
+Jul 26 11:32:55 backupclient systemd[1]: borg-backup.service: Deactivated successfully.
+Jul 26 11:32:55 backupclient systemd[1]: borg-backup.service: Consumed 5.973s CPU time.
+
+
 
 
 
