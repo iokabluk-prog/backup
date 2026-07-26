@@ -507,7 +507,7 @@ Jul 26 11:53:51 backupclient systemd[1]: Stopped Borg Backup Timer.
 # Создаем резервную копию текущего /etc (на всякий случай)
 vagrant@backupclient:~$ sudo cp -r /etc /etc.backup.$(date +%Y%m%d_%H%M%S)
 # Переместим директорию /etc
-vagrant@backupclient:~$ sudo mv /etc /etc.oldекторию /etc
+vagrant@backupclient:~$ sudo mv /etc /etc.old
 # Восстановим /etc из бэкапа
 # Создадим директорию /etc
 vagrant@backupclient:~$ sudo mkdir /etc
@@ -524,7 +524,7 @@ sudo mount --bind /sys /mnt/sys
 sudo chroot /mnt
 # Настройка сети
 sudo ip addr flush dev enp0s8
-sudo ip addr add 192.168.1.100/24 dev enp0s8
+sudo ip addr add 192.168.56.16/24 dev enp0s8
 sudo ip link set enp0s8 up
 # Создаем минимальный /etc/passwd
 echo 'root:x:0:0:root:/root:/bin/bash' | sudo tee /etc/passwd
