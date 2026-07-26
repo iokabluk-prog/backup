@@ -1,0 +1,173 @@
+---
+- name: Установка BorgBackup
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Скачивание borgbackup
+      get_url:
+        url: https://github.com/borgbackup/borg/releases/download/1.2.8/borg-linux64
+        dest: /usr/local/bin/borg
+        mode: '0755'
+
+- name: Настройка сервера
+  hosts: 192.168.56.16
+  become: yes
+
+  tasks:
+    - name: Создание пользователя borg
+      user:
+        name: borg
+        state: present
+
+    - name: Создание /var/backup
+      file:
+        path: /var/backup
+        state: directory
+        owner: borg
+        group: borg
+        mode: '0755'
+
+    - name: Создание .ssh
+      file:
+        path: /home/borg/.ssh
+        state: directory
+        owner: borg
+        group: borg
+        mode: '0700'
+
+    - name: Создание authorized_keys
+      file:
+        path: /home/borg/.ssh/authorized_keys
+        state: touch
+        owner: borg
+        group: borg
+        mode: '0600'
+
+- name: Настройка клиента
+  hosts: 192.168.56.17
+  become: no
+
+  tasks:
+    - name: Генерация SSH ключа
+      command: ssh-keygen -t rsa -b 4096 -f /home/vagrant/.ssh/id_rsa_borg -N ""
+      args:
+        creates: /home/vagrant/.ssh/id_rsa_borg
+
+    - name: Копирование ключа через ssh-copy-id (с ручным вводом пароля)
+      command: ssh-copy-id -i /home/vagrant/.ssh/id_rsa_borg.pub borg@192.168.56.16
+      ignore_errors: yes
+      register: copy_result
+      
+    - name: Если ssh-copy-id не сработал - копируем через vagrant пользователя
+      shell: |
+        cat /home/vagrant/.ssh/id_rsa_borg.pub | ssh vagrant@192.168.56.16 "sudo tee -a /home/borg/.ssh/authorized_keys && sudo chown borg:borg /home/borg/.ssh/authorized_keys && sudo chmod 600 /home/borg/.ssh/authorized_keys"
+      when: copy_result is failed
+
+    - name: Проверка доступности репозитория
+      command: ssh -i /home/vagrant/.ssh/id_rsa_borg -o StrictHostKeyChecking=no borg@192.168.56.16 "ls -la /var/backup/"
+      register: repo_check
+      ignore_errors: yes
+
+    - name: Инициализация репозитория Borg
+      command: borg init --encryption=repokey borg@192.168.56.16:/var/backup/
+      environment:
+        BORG_PASSPHRASE: "cat"
+        BORG_RSH: "ssh -i /home/vagrant/.ssh/id_rsa_borg -o StrictHostKeyChecking=no"
+      when: repo_check is failed or "'config' not in repo_check.stdout"
+
+    - name: Создание systemd service файла
+      copy:
+        dest: /tmp/borg-backup.service
+        content: |
+          [Unit]
+          Description=Borg Backup
+
+          [Service]
+          Type=oneshot
+
+          # Парольная фраза
+          Environment="BORG_PASSPHRASE=cat"
+          Environment="BORG_RSH=ssh -i /home/vagrant/.ssh/id_rsa_borg -o StrictHostKeyChecking=no -o UserKnownHostsFile=/home/vagrant/.ssh/known_hosts"
+          # Репозиторий
+          Environment=REPO=borg@192.168.56.16:/var/backup/
+          # Что бэкапим
+          Environment=BACKUP_TARGET=/etc
+
+          # Создание бэкапа
+          ExecStart=/usr/local/bin/borg create \
+              --stats                \
+              ${REPO}::etc-{now:%%Y-%%m-%%d_%%H:%%M:%%S} ${BACKUP_TARGET}
+
+          # Проверка бэкапа
+          ExecStart=/usr/local/bin/borg check ${REPO}
+
+          # Очистка старых бэкапов
+          ExecStart=/usr/local/bin/borg prune \
+              --keep-daily  90      \
+              --keep-monthly 12     \
+              --keep-yearly  1       \
+              ${REPO}
+      become: yes
+      become_user: root
+
+    - name: Копирование service файла в /etc/systemd/system
+      command: sudo cp /tmp/borg-backup.service /etc/systemd/system/borg-backup.service
+      become: yes
+      become_user: root
+
+    - name: Удаление временного service файла
+      file:
+        path: /tmp/borg-backup.service
+        state: absent
+      become: yes
+      become_user: root
+
+    - name: Создание systemd timer файла
+      copy:
+        dest: /tmp/borg-backup.timer
+        content: |
+          [Unit]
+          Description=Borg Backup Timer
+          Requires=borg-backup.service
+
+          [Timer]
+          OnUnitActiveSec=5min
+
+          [Install]
+          WantedBy=timers.target
+      become: yes
+      become_user: root
+
+    - name: Копирование timer файла в /etc/systemd/system
+      command: sudo cp /tmp/borg-backup.timer /etc/systemd/system/borg-backup.timer
+      become: yes
+      become_user: root
+
+    - name: Удаление временного timer файла
+      file:
+        path: /tmp/borg-backup.timer
+        state: absent
+      become: yes
+      become_user: root
+
+    - name: Перезагрузка systemd
+      command: sudo systemctl daemon-reload
+      become: yes
+      become_user: root
+
+    - name: Включение и запуск таймера
+      command: sudo systemctl enable --now borg-backup.timer
+      become: yes
+      become_user: root
+
+    - name: Проверка статуса таймера
+      command: sudo systemctl status borg-backup.timer --no-pager
+      register: timer_status
+      changed_when: false
+      become: yes
+      become_user: root
+
+    - name: Вывод статуса таймера
+      debug:
+        msg: "{{ timer_status.stdout_lines }}"
