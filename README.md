@@ -166,9 +166,107 @@ ansible_python_interpreter=/usr/bin/python3
       command: ssh-copy-id -i /home/vagrant/.ssh/id_rsa_borg.pub borg@192.168.56.16
       ignore_errors: yes
       register: copy_result
-
     - name: Если ssh-copy-id не сработал - копируем через vagrant пользователя
       shell: |
         cat /home/vagrant/.ssh/id_rsa_borg.pub | ssh vagrant@192.168.56.16 "sudo tee -a /home/borg/.ssh/authorized_keys && sudo chown borg:borg /home/borg/.ssh/authorized_keys && sudo chmod 600 /home/borg/.ssh/authorized_keys"
       when: copy_result is failed
+# Генерация ключа на клиенте 
+
+vagrant@backupclient:~$ ssh-keygen -t rsa -b 4096 -C "borg-backup-key"
+Generating public/private rsa key pair.
+Enter file in which to save the key (/home/vagrant/.ssh/id_rsa):
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /home/vagrant/.ssh/id_rsa
+Your public key has been saved in /home/vagrant/.ssh/id_rsa.pub
+The key fingerprint is:
+SHA256:MZe0jz5WfA6F/w5fD8NcmmK9aYJRp2Qy2v/Lrsy+Uao borg-backup-key
+The key's randomart image is:
++---[RSA 4096]----+
+|          .      |
+|         . o .   |
+|        o + . .  |
+|         +o++o.  |
+|        So.*=o+ .|
+|        ..o..X = |
+|          ++= @ o|
+|         ..*o+.Oo|
+|          E.*BB.+|
++----[SHA256]-----+
+#  Копируем ключ на сервер
+vagrant@backupclient:~$ ssh vagrant@192.168.56.16 "sudo mkdir -p /home/borg/.ssh && sudo tee -a /home/borg/.ssh/authorized_keys" < ~/.ssh/id_rsa.pub
+# Проверяем подключение
+vagrant@backupclient:~$ ssh borg@192.168.56.16
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 5.15.0-181-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Sun Jul 26 09:17:06 UTC 2026
+
+  System load:  0.0               Processes:               104
+  Usage of /:   4.2% of 38.70GB   Users logged in:         1
+  Memory usage: 13%               IPv4 address for enp0s3: 192.168.1.54
+  Swap usage:   0%
+
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+Enable ESM Apps to receive additional future security updates.
+See https://ubuntu.com/esm or run: sudo pro status
+
+
+The list of available updates is more than a week old.
+To check for new updates run: sudo apt update
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+# С клиента инициализируем репозиторий borg
+vagrant@backupclient:~$ borg init --encryption=repokey borg@192.168.56.16:/var/backup/
+Enter new passphrase:
+Enter same passphrase again:
+Do you want your passphrase to be displayed for verification? [yN]: y
+Your passphrase (between double-quotes): "cat"
+Make sure the passphrase displayed above is exactly what you wanted.
+
+By default repositories initialized with this version will produce security
+errors if written to with an older version (up to and including Borg 1.0.8).
+
+If you want to use these older versions, you can disable the check by running:
+borg upgrade --disable-tam ssh://borg@192.168.56.16/var/backup
+
+See https://borgbackup.readthedocs.io/en/stable/changes.html#pre-1-0-9-manifest-spoofing-vulnerability for details about the security implications.
+
+IMPORTANT: you will need both KEY AND PASSPHRASE to access this repo!
+If you used a repokey mode, the key is stored in the repo, but you should back it up separately.
+Use "borg key export" to export the key, optionally in printable format.
+Write down the passphrase. Store both at safe place(s).
+
+# Запускаем для проверки создания бэкапа
+vagrant@backupclient:~$ borg create --stats --list borg@192.168.56.16:/var/backup/::"etc-{now:%Y-%m-%d_%H:%M:%S}" /etc
+
+Repository: ssh://borg@192.168.56.16/var/backup
+Archive name: etc-2026-07-26_09:46:04
+Archive fingerprint: 30145100a2614a19fe41e3c73cc901f0892b993ded13c1a4618e09f662736076
+Time (start): Sun, 2026-07-26 09:46:17
+Time (end):   Sun, 2026-07-26 09:46:20
+Duration: 3.51 seconds
+Number of files: 678
+Utilization of max. archive size: 0%
+------------------------------------------------------------------------------
+                       Original size      Compressed size    Deduplicated size
+This archive:                2.08 MB            914.16 kB            883.62 kB
+All archives:                2.08 MB            913.54 kB            950.49 kB
+
+                       Unique chunks         Total chunks
+Chunk index:                     643                  671
+-----------------------------------------------------------------------
+
+
+
+
+
+    
 
